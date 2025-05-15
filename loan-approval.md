@@ -1,6 +1,6 @@
-# Save To Draft Endpoint
+# Loan Approval Endpoint
 
-This section implements a RESTful API endpoint for saving loan drafts with the following components:
+This code implements a RESTful API endpoint for confirming loan actions (approval or rejection) with the following components:
 
 ### Controller Layer
 
@@ -87,4 +87,86 @@ graph TD
     N --> O
 
     D & E -.->|"Finally"| AD["Release Lock"]
+```
+
+# Loan Review Endpoint
+
+This code implements a RESTful API endpoint for requesting loan approval with the following components:
+
+### Controller Layer
+
+- Defines a POST endpoint at `/request-approval/{loanId}`
+- Accepts a loan ID path variable and loan type parameter
+- Routes the request to either corporate or individual loan service based on the loan type
+
+### Service Layer (Corporate and Individual)
+
+### Service Layer (Corporate and Individual)
+
+Both services follow a similar pattern:
+
+1. **User Context**: Retrieves the current user profile
+2. **Loan Retrieval**: Finds the existing loan request by ID and PENDING_APPROVAL status
+3. **Status Update**: Sets the application stage to IN_REVIEW
+4. **Metadata Update**: Updates the last modified information
+5. **Audit Preparation**: Creates an audit meta info object with loan details
+6. **Audit Preparation**: Creates an audit meta info object with loan details
+7. **Super User Logic**:
+
+   - If the user is a super user:
+
+     - Creates a checker request with APPROVED status
+     - Logs loan activities
+     - Initiates disbursement and approval directly
+     - Records audit information
+     - Returns response
+
+   - If the user is not a super user:
+
+     - Saves the updated loan request
+     - Creates response DTO
+     - Records audit information
+     - Logs loan activities
+     - For corporate loans, sends email notification
+     - Returns response
+
+## Detailed Flow Diagram
+
+```mermaid
+
+graph TD
+    A["Client Request"] -->|"POST /request-approval/{loanId}"| B["Controller"]
+    B -->|"Route Request"| C{"Loan Type?"}
+
+    C -->|"CORPORATE"| D["Corporate Loan Service"]
+    C -->|"INDIVIDUAL"| E["Individual Loan Service"]
+
+    D --> F["Get User Profile"]
+    E --> F
+
+    F --> G["Find Loan Request with PENDING_APPROVAL Status"]
+    G -->|"Not Found"| H["Throw NotFoundException"]
+    G -->|"Found"| I["Set Application Stage to IN_REVIEW"]
+
+    I --> J["Update Last Modified Information"]
+    J --> K["Prepare Audit Meta Info"]
+
+    K --> L{"Is Super User?"}
+
+    L -->|"Yes"| M["Create Checker Request with APPROVED Status"]
+    M --> N["Log Loan Activities"]
+    N --> O["Initiate Disbursement and Approval"]
+    O --> P["Populate Audit Success"]
+    P --> Q["Return Response"]
+
+    L -->|"No"| R["Save Updated Loan Request"]
+    R --> S["Create Response DTO"]
+    S --> T["Populate Audit Success"]
+
+    T --> U["Log Loan Activities"]
+
+    D -->|"Corporate Service"| V["Send Email Notification"]
+    V --> W["Return Response"]
+
+    U --> W
 ```

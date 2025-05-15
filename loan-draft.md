@@ -79,7 +79,7 @@ graph TD
     W --> X["Throw Internal Error Exception"]
 ```
 
-## Update To Draft Endpoint
+## Update Draft Endpoint
 
 This section implements a RESTful API endpoint for saving loan drafts with the following components:
 
@@ -119,7 +119,7 @@ Both services follow a similar pattern:
 
 ## Detailed Flow Diagram
 
-````mermaid
+```mermaid
 
 graph TD
     A["Client Request"] -->|"PUT /loan-drafts/{loanId}"| B["Controller"]
@@ -166,4 +166,4 @@ graph TD
     G -.->|"Exception"| Z
     Z --> AA["Throw Internal Error Exception"]
 
-````
+```
