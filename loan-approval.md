@@ -1,4 +1,3 @@
-
 # Granular Explanation Of Loan Approval Endpoint
 
 This code implements a RESTful API endpoint for confirming loan actions (approval or rejection) with the following components:
@@ -240,11 +239,7 @@ graph TD
     O --> BA
 ```
 
-
-
-
-
-# Loan Review Endpoint
+# Granular Explanation of Loan Review Endpoint
 
 This code implements a RESTful API endpoint for requesting loan approval with the following components:
 
@@ -255,37 +250,92 @@ This code implements a RESTful API endpoint for requesting loan approval with th
 - Routes to the appropriate service (corporate or individual) based on the loan type
 - Returns the response from the service
 
-
 ### Service Layer - Common Flow
 
 Both services follow a similar pattern:
 
-1. **User Context**: Retrieves the current user profile
-2. **Loan Retrieval**: Finds the existing loan request by ID and PENDING_APPROVAL status
-3. **Status Update**: Sets the application stage to IN_REVIEW
-4. **Metadata Update**: Updates the last modified information
-5. **Audit Preparation**: Creates an audit meta info object with loan details
-6. **Audit Preparation**: Creates an audit meta info object with loan details
-7. **Super User Logic**:
+1. **User Context**:
 
-   - If the user is a super user:
+- Get the current user profile and token
+- Set up HTTP request for auditingofile
 
-     - Creates a checker request with APPROVED status
-     - Logs loan activities
-     - Initiates disbursement and approval directly
-     - Records audit information
-     - Returns response
+2. **Loan Request Retrieval**:
 
-   - If the user is not a super user:
+- Find the loan request by ID and status (PENDING_APPROVAL)
+- If not found, throw a NotFoundException with a detailed message
 
-     - Saves the updated loan request
-     - Creates response DTO
-     - Records audit information
-     - Logs loan activities
-     - For corporate loans, sends email notification
-     - Returns response
+3. **Loan Request Update**:
+
+- Set the application stage to IN_REVIEW
+- Update last modified information (who modified it, when, etc.)
+- Set isLoanRequest to true (for corporate loans)
+
+4. **Audit Setup**:
+
+- Create an AuditMetaInfoDto with loan details
+- Set loan amount, account number, customer name, and product name
+
+5. **Superuser Flow**:
+
+- If the user is a superuser:
+
+  - Create a LoanCheckerRequestDto with approval status APPROVED
+  - Set approver comment to "Superuser approval"
+  - Log loan activities with state "INITIATED", comment "loan booking initiated by [username]", and next action "REVIEW"
+  - Call initiateDisbursementAndApproval to approve and disburse the loan
+  - Log a successful audit
+  - Return a response with the loan response body
+
+6. **Regular User Flow**:
+
+- Save the updated loan request
+- Create a loan response body
+- Log a successful audit
+- Log loan activities with state "INITIATED", comment "loan booking initiated by [username]", and next action "REVIEW"
+- For corporate loans, send email notifications
+- Return a response with the loan response body
+
+### Disbursement Process
+
+The initiateDisbursementAndApproval method handles the approval and disbursement process with these steps:
+
+1. **Disbursement Method Determination**:
+
+- If initiateDisbursement is false:
+
+  - Change loan object status to APPROVED
+  - Create loan record without disbursement
+  - Save the updated loan request
+  - Send loan approval notification
+  - Log loan activities with state "APPROVED"
+
+- If disbursement date is in the future:
+
+  - Change loan object status to APPROVED
+  - Update disburse date
+  - Approve and update tranches
+  - Save the updated loan request
+  - Send loan approval notification
+  - Log loan activities with state "APPROVED"
+
+- If immediate disbursement:
+
+  - Change loan object status to APPROVED
+  - Approve and update tranches
+  - Call disburseLoanToCustomer to handle the actual disbursement
+  - Log loan activities with state "DISBURSED" or "APPROVED" (for credit lines)
+
+2. **Exception Handling**:
+
+- If any exception occurs during approval:
+
+  - Reset the loan request status to PENDING_APPROVAL
+  - Reset the application stage to IN_REVIEW
+  - Save the updated loan request
+  - Throw an InternalErrorException with the error message
 
 ## Detailed Flow Diagram
+
 ```mermaid
 graph TD
     A["Client Request"] -->|"POST /request-approval/{loanId}"| B["Controller"]
