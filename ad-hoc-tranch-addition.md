@@ -1,4 +1,4 @@
-# AdHoc Tranch Addition Endpoint
+# Granular Explanation of AdHoc Tranch Addition Endpoint
 
 This code implements a RESTful API endpoint for adding an ad-hoc disbursement tranche to an existing corporate loan with the following components:
 
