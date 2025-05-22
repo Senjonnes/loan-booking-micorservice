@@ -1,4 +1,4 @@
-# Bulk Loan Interest Rate Change Endpoint
+# Granular Explanation Of Bulk Loan Interest Rate Change Endpoint
 
 This code implements a RESTful API endpoint for uploading an Excel file
 containing loan accounts and interest rates, and then processing the loan repayment schedules
@@ -27,10 +27,10 @@ with the updated interest rates. Here's a detailed explanation:
 - Fetches unpaid schedules in paginated batches
 - For each batch:
 
-- If there are no schedules, breaks the loop
-- Calls updateSchedules to update the schedules
-- Increments the page counter
-- Continues until all pages are processed
+  - If there are no schedules, breaks the loop
+  - Calls updateSchedules to update the schedules
+  - Increments the page counter
+  - Continues until all pages are processed
 
 ### Service Layer - updateSchedules
 
@@ -49,7 +49,7 @@ with the updated interest rates. Here's a detailed explanation:
       - Creates a new schedule with updated values
       - Adds it to the list of new schedules
 
-    - For other patterns (e.g., STRAIGHT_LINE):
+    - For other patterns (e.g.,FIXED or EQUAL REPAYMENT):
 
       - Calculates the effective rate
       - For each schedule:
@@ -59,7 +59,7 @@ with the updated interest rates. Here's a detailed explanation:
         - Creates a new schedule with updated values
         - Adds it to the list of new schedules
 
-- Saves all the old schedules (marked as deleted)
+- Saves all the old schedules (marked as deleted) using soft delete principles
 - Saves all the new schedules
 - Logs the successful update
 
@@ -121,13 +121,13 @@ graph TD
     AL --> AM["Return Response"]
 ```
 
-# Single Loan Interest Rate Change Request Endpoint
+# Granular Explanation Of Single Loan Interest Rate Change Request Endpoint
 
 The service method is annotated with `@Transactional` to ensure database consistency and follows these steps:
 
 ### Controller Layer
 
-- Defines a POST endpoint at `/single/interest-rate/request`
+- Defines a POST endpoint at `/single/interest-rate/request` for the maker of this request
 - Accepts a LoanInterestRateDto in the request body
 - Calls the loan repayment schedule service's updateSingleInterestRate method
 - Returns the response
@@ -139,7 +139,7 @@ The service method follows these steps:
 1. **User Context**: Retrieves the current user profile
 2. **Authorization Validation**:
 
-   - Validates that the user has the right authority to update loan interest rates
+   - Validates that the user has the right authority of INTEREST_RATE_MODIFICATION_REQUEST_AUTHORITY to update loan interest rates
 
 3. **Loan Retrieval**:
 
@@ -220,13 +220,13 @@ graph TD
     U --> V["Throw Exception"]
 ```
 
-# Single Loan Interest Rate Change Review Endpoint
+# Granular Explanation Of Single Loan Interest Rate Change Review Endpoint
 
 This code implements a RESTful API endpoint for reviewing and approving/rejecting an interest rate change request for a single loan with the following components:
 
 ### Controller Layer
 
-- Defines a POST endpoint at `/single/interest-rate/review`
+- Defines a POST endpoint at `/single/interest-rate/review` for the checker
 - Accepts a RequestReviewDto in the request body
 - Calls the loan repayment schedule service's reviewSingleInterestRate method
 - Returns the response
@@ -238,7 +238,7 @@ The service method is annotated with `@Transactional` to ensure database consist
 1. **User Context**: Retrieves the current user profile
 2. **Authorization Validation**:
 
-   - Validates that the user has the right authority to review interest rate changes
+   - Validates that the user has the right authority of INTEREST_RATE_MODIFICATION_REVIEW_AUTHORITY to review interest rate changes
 
 3. **Request Retrieval**:
 
@@ -310,7 +310,7 @@ This method handles the actual schedule updates based on the loan's repayment pa
   - Creates a new schedule with updated values
   - Adds it to the list of new schedules
 
-- For other patterns (e.g., STRAIGHT_LINE):
+- For other patterns (e.g., FIXED or EQUAL REPAYMENT):
 
 - Calculates the effective rate
 - For each schedule:
@@ -320,7 +320,7 @@ This method handles the actual schedule updates based on the loan's repayment pa
   - Creates a new schedule with updated values
   - Adds it to the list of new schedules
 
-- Saves all the old schedules (marked as deleted)
+- Saves all the old schedules (marked as deleted) using soft delete principle
 - Saves all the new schedules
 - Logs the successful update
 
