@@ -1,88 +1,194 @@
-# EOD Loan Repayment Processing Endpoint
+# Granular Explanation of EOD Loan Repayment Processing Endpoint
 
-This system handles End-of-Day (EOD) processing for loan repayments through several key components
+The provided code implements a sophisticated End-of-Day (EOD) loan repayment processing system that automatically handles due loan repayments. Here's a detailed explanation of the components and flow:
 
-1. **API Endpoint**: The process starts with a POST request to `/run` with EOD trigger data.
-2. **EOD Service**: Filters the triggers to find loan repayment activities and initiates processing.
-3. **Repayment Processing**: The core process involves:
+### 1. Controller Layer - Triggering EOD Process
 
-   - Creating a tracking record for the EOD run
-   - Retrieving all due loan repayment schedules
-   - Processing each repayment in parallel using a ForkJoinPool
+The system starts with a REST endpoint that accepts EOD run trigger requests:
 
-4. **Individual Repayment Processing**:
+- Accepts a list of EODRunTriggerDto objects specifying which EOD activities to run
+- Counts loans due for repayment
+- Triggers the EOD process asynchronously
+- Returns an immediate response while processing continues in the background
 
-   - Checks if the repayment is already paid
-   - Retrieves account details and balance
-   - Removes any existing liens
-   - Determines account funding state (fully funded, partially funded, not funded)
-   - Takes appropriate action based on funding state:
+### 2. EOD Service - Orchestrating the Process
 
-     - For fully funded accounts: Prepares journal posting details
-     - For partially funded: Attempts to source funds from other accounts
-     - For unfunded accounts: Places a lien or tries other funding sources
+The EOD service orchestrates the overall process:
 
-- Updates processing counts
+- Filters the EOD triggers to find the loan repayment trigger
+- Calls processEODForDueRepaymentsX with the COB (Close of Business) date
+- Runs asynchronously to avoid blocking the client
 
-6. **Scheduled Jobs**: Several background jobs run at regular intervals to:
+### 3. Process EOD For Due Repayments
 
-   - Process batch journal postings (every 5 minutes)
-   - Check status of batch postings (every 15 minutes)
-   - Process single postings (every 15 minutes)
-   - Update repayment schedules (every 6 minutes)
+This is the core method that handles the repayment processing:
+
+#### a. Tracker Management
+
+- Creates and locks a tracker to prevent duplicate processing
+- Generates a unique run ID for tracking the process
+- If locking fails (another process is running), returns early with a message that "There is an ongoing process that started"
+
+#### b. Due Schedule Retrieval
+
+- Retrieves all unpaid loan repayment schedules that are ('DUE', 'LATE', 'PARTIALLY_PAID') with loan status of ('DISBURSED', 'EXPIRED)
+- For individual processing, filters by loan ID
+- Removes duplicates based on schedule ID
+- If no schedules are found, returns early
+
+#### c. Parallel Processing
+
+- Uses a ForkJoinPool to process schedules in parallel
+- Tracks counts of processed, skipped, and total items
+
+#### d. Account Detail Retrieval
+
+For each schedule:
+
+- Retrieves account details from the account retriever client
+- If account not found, saves to skipped repository and continues
+- Removes any existing lien before processing
+
+#### e. Repayment Processing
+
+The processRepayment method handles the actual repayment logic:
+
+- Checks if the schedule is already paid
+- Gets available balance and account state
+- Handles different account balance states:
+
+  - FULLY_FUNDED: Account has enough funds to cover the full repayment
+  - PARTIALLY_FUNDED: Account has some funds but not enough for full repayment
+  - NOT_FUNDED: Account has no funds for repayment
+  - NOT_OWING: No repayment is due
+
+#### f. Balance Handling Strategies
+
+- For PARTIALLY_FUNDED or NOT_FUNDED states, tries to find funds from other customer accounts if it is enable on booking
+- If funds are available in the customer account with the same currency validation in place, we sweep the funds into the customer loan account
+- If funds are available, prepares and sets post details
+- If no funds are available, places a lien on the account for future collection
+
+#### g. Journal Entry Creation
+
+- Creates journal entries for successful repayments
+- Tracks these entries for batch processing
+
+### 4. Scheduled Tasks - Processing Journal Entries
+
+The system uses several scheduled tasks to process the created journal entries:
+
+#### a. Batch Posting
+
+- Runs every 5 minutes
+- Retrieves unprocessed journal entries in batches with batch post status of NOT_PROCESSED
+- Posts them to the core banking system through journal posting.
+- All responses after this transaction is given BATCH_SUCCESS status
+
+#### b. Batch Status Check
+
+- Runs every 15 minutes
+- Checks the status of batch-posted journal entries with BATCH_SUCCESS status
+- Updates entries based on their status
+- After the status, we can have either SUCCESS, FAILED, NOT_POSTED, NOT_POSTED_AND_NOT_SURE depending on the response from journal posting at the time.
+
+#### c. Single Posting
+
+- Runs every 15 minutes
+- Processes failed batch entries and hard currencies repayments individually
+- Posts them to the core banking system
+
+#### d. Single Status Check
+
+- Runs every 15 minutes
+- Checks the status of individually posted journal entries
+- Updates entries based on their status
+
+#### e. Schedule Update
+
+- Runs every 6 minutes
+- Updates loan repayment schedules based on processed journal entries
+- Calculates payment status (PAID, PARTIALLY_PAID)
+- Handles any failed amounts by placing liens
+
+### 5. Schedule Update Process
+
+The updateScheduleSumPlus method handles the final update of loan repayment schedules:
+
+- Retrieves finished process runs
+- Groups them by schedule ID
+- For each schedule:
+
+  - Calculates total paid amounts (principal, interest, penalty)
+  - Determines payment status based on the difference between owed and paid amounts
+  - Updates the loan repayment schedule
+  - Handles any failed amounts by adding to existing liens or creating new ones
 
 ## Detailed Flow Diagram
 
 ```mermaid
 
 graph TD
-    A[Client] -->|"POST /run"| B[EOD Controller]
-    B -->|"Count unpaid schedules"| C[Loan Repayment Repository]
-    C -->|"Return count"| B
-    B -->|"runEODX"| D[EOD Service]
+    A["Controller: runEodService"] -->|"Trigger EOD Process"| B["eodService.runEODX"]
 
-    D -->|"Filter for loan repayment trigger"| E[Process EOD Repayments]
-    E -->|"Create tracker"| F[Create and lock tracker]
-    F -->|"Get due schedules"| G[Get due payment schedules]
+    B -->|"Async"| C["processEODForDueRepaymentsX"]
 
-    G -->|"Process in parallel"| H[ForkJoinPool]
-    H -->|"For each schedule"| I[Process individual repayment]
+    C --> D["createAndLockTracker"]
+    D -->|"Lock Failed"| E["Return Early"]
 
-    I -->|"Get account details"| J[Account Service]
-    I -->|"Remove lien if exists"| K[Lien Service]
-    I -->|"Process repayment"| L[Process Repayment]
+    D -->|"Lock Acquired"| F["getDueSchedules"]
+    F -->|"No Due Schedules"| G["Return Early"]
 
-    L -->|"Check payment status"| M{Already paid?}
-    M -->|"Yes"| N[Skip processing]
-    M -->|"No"| O[Check account balance]
+    F -->|"Due Schedules Found"| H["Process Schedules in Parallel"]
 
-    O -->|"Determine account state"| P{Account state?}
-    P -->|"FULLY_FUNDED"| Q[Prepare journal posting]
-    P -->|"PARTIALLY_FUNDED"| R[Try other accounts]
-    P -->|"NOT_FUNDED"| S[Place lien or try other accounts]
-    P -->|"NOT_OWING"| T[Skip processing]
+    H --> I["For Each Schedule"]
 
-    R -->|"Update balance"| Q
-    S -->|"If other sources available"| R
-    S -->|"No other sources"| U[Place lien]
+    I --> J["getAccountDetail"]
+    J -->|"Account Not Found"| K["Save to Skipped Repository"]
 
-    Q -->|"Return journal model"| I
-    N -->|"Return detail process"| I
-    T -->|"Return detail process"| I
-    U -->|"Return detail process"| I
+    J -->|"Account Found"| L["Remove Lien if Exists"]
 
-    I -->|"Update counts"| V[Update tracker]
-    V -->|"Complete EOD process"| W[Return response]
+    L --> M["processRepayment"]
 
-    subgraph "Scheduled Jobs"
-        X[Batch Posting Job]
-        Y[Status Check Job]
-        Z[Single Posting Job]
-        AA[Update Schedule Job]
-    end
+    M --> N{"Account Balance State?"}
 
-    X -.->|"Every 5 minutes"| BB[Batch Process Service]
-    Y -.->|"Every 15 minutes"| CC[Status Check Service]
-    Z -.->|"Every 15 minutes"| DD[Single Process Service]
-    AA -.->|"Every 6 minutes"| EE[Repayment Post Service]
+    N -->|"FULLY_FUNDED"| O["prepareAndSetPostDetails"]
+
+    N -->|"PARTIALLY_FUNDED"| P["Check for Other Accounts"]
+    P --> Q["prepareAndSetPostDetails"]
+
+    N -->|"NOT_FUNDED"| R["Check for Other Accounts"]
+    R -->|"Funds Available"| S["prepareAndSetPostDetails"]
+    R -->|"No Funds"| T["Place Lien and Skip"]
+
+    N -->|"NOT_OWING"| U["Skip Processing"]
+
+    O & Q & S --> V["Journal Entries Created"]
+
+    V --> W["Scheduled Tasks Process Entries"]
+
+    W --> X["performCronTaskForBatchPost"]
+    X --> Y["startBatchProcessJournalPosting"]
+
+    W --> Z["performCronTaskForBatchStatusCheck"]
+    Z --> AA["startStatusBatchPostHere"]
+
+    W --> AB["performCronTaskForSinglePost"]
+    AB --> AC["startSingleProcessJournalPosting"]
+
+    W --> AD["performCronTaskForSingleStatusCheck"]
+    AD --> AE["startSingleStatusBatchPostHere"]
+
+    W --> AF["performCronTaskForUpdateSchedule"]
+    AF --> AG["updateScheduleSumPlus"]
+
+    AG --> AH["processByScheduleId"]
+
+    AH --> AI["Update Loan Repayment Schedule"]
+
+    AI --> AJ["Set Payment Status"]
+
+    AJ --> AK["Handle Failed Amounts"]
+
+    C -->|"Processing Complete"| AL["Update Tracker with Counts"]
 ```
